@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
         let interval = Duration::from_secs_f64(1.0 / cli.fps);
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
-            for frame in 0u32.. {
+            for frame in 0..=u32::MAX {
                 ticker.tick().await;
                 let payload = [&frame.to_le_bytes()[..], &width.to_le_bytes(), &height.to_le_bytes()].concat();
                 let _ = session.put(&key, payload).await;
@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
     let data_session = session.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(Duration::from_millis(100));
-        for count in 0u64.. {
+        for count in 0..=u64::MAX {
             ticker.tick().await;
             let _ = data_session.put("data/counter", format!("count {count}")).await;
             let depth: Vec<u8> = (0..65536u32).map(|index| (index as u64 + count) as u8).collect();

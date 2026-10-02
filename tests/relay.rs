@@ -54,7 +54,7 @@ async fn start_backend(endpoint: &str) -> (Server, zenoh::Session) {
 fn keep_putting(session: &zenoh::Session, label: &'static str) -> tokio::task::JoinHandle<()> {
     let session = session.clone();
     tokio::spawn(async move {
-        for count in 0u64.. {
+        for count in 0..=u64::MAX {
             let _ = session.put("robot/state", format!("{label} {count}")).await;
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
