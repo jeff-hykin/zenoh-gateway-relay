@@ -46,7 +46,7 @@ struct Cli {
     /// Re-encoding for viewers: auto (hardware if one works: VideoToolbox, or GStreamer's nvv4l2h264enc / nvh264enc /
     /// VAAPI; else software), software (openh264), videotoolbox or gstreamer.
     #[arg(long, default_value = "auto")]
-    video_encoder: zenoh_web_encoders::Backend,
+    video_encoder: zenoh_dimos_codecs::encoders::Backend,
 }
 
 /// `turn:user:pass@host:port` -> the URL without `user:pass@`, and the credentials.
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
     let filter = std::env::var("RUST_LOG").ok().filter(|filter| !filter.is_empty()).unwrap_or_else(|| "info,zenoh=warn,zenoh_ext=warn,zenoh_web=info,zenoh_web_relay=info,rtc=warn,webrtc=warn".to_owned());
     env_logger::Builder::new().parse_filters(&filter).init();
     let cli = Cli::parse();
-    let video = zenoh_web_encoders::select(cli.video_encoder)?;
+    let video = zenoh_dimos_codecs::encoders::select(cli.video_encoder)?;
     info!("video encoder: {}", video.name);
     let auth = cli.auth_file.as_ref().map(AuthFileTokens::load).transpose()?;
     let mut builder = Relay::builder(&cli.backend_name).upstream_max_bitrate(cli.upstream_max_bitrate);

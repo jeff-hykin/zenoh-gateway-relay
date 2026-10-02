@@ -20,7 +20,7 @@ browsers ──WebRTC──▶ zenoh-web-relay (public host)  ◀──WebRTC (1
   pictures feed the relay's embedded zenoh-web `Server` as a video codec of the same name, whose encode sessions
   are shared by viewers at similar grants and whose allocator fits each viewer's link. Re-encoding uses a hardware
   encoder when one works (`--video-encoder auto`: VideoToolbox, or GStreamer's `nvv4l2h264enc` / `nvh264enc` /
-  VAAPI, from [zenoh-web-encoders](https://github.com/jeff-hykin/zenoh-web-encoders)), else openh264.
+  VAAPI, from [zenoh-dimos-codecs](https://github.com/jeff-hykin/zenoh-dimos-codecs)' encoders), else openh264.
 - **Audio codecs too:** the backend's Opus is decoded once (libopus) and the PCM feeds an audio codec of the same
   name, which the relay's server encodes to Opus per viewer.
 - **Data topics are pulled once and fanned out.** Fields and data codecs (depth, point clouds) are passed through
@@ -114,7 +114,7 @@ let relay = zenoh_web_relay::Relay::builder("robot")
     .viewers(move |server| {
         let server = server.authorize(my_hook).ice_servers(ice).udp_ports(50000..=50100);
         // hardware re-encoding, as --video-encoder auto
-        match zenoh_web_relay::zenoh_web_encoders::select(zenoh_web_relay::zenoh_web_encoders::Backend::Auto) {
+        match zenoh_web_relay::zenoh_dimos_codecs::encoders::select(zenoh_web_relay::zenoh_dimos_codecs::encoders::Backend::Auto) {
             Ok(selected) => match selected.factory { Some(factory) => server.video_encoder(factory), None => server },
             Err(_) => server,
         }
@@ -150,7 +150,7 @@ backend's subscriptions close after the last viewer leaves.
   connection (the relay waits for it before serving viewers); codecs added on a reconnect are not picked up.
 - **Decoding is software H.264 (openh264): video codecs must produce H.264.** A backend whose encoder sends VP8,
   VP9 or AV1 is not decoded. Audio is decoded at 48 kHz (the rate zenoh-web's Opus tracks use).
-- When embedding, use the re-exported `zenoh_web_relay::zenoh_web` and `zenoh_web_relay::zenoh_web_encoders` (other
+- When embedding, use the re-exported `zenoh_web_relay::zenoh_web` and `zenoh_web_relay::zenoh_dimos_codecs` (other
   revisions of them are different crates to cargo).
 - **Wildcard viewer subscriptions** expand over the backend's listed topics (liveliness tokens by default; keys that
   only appear when published need `topic_probe_ms`), so a wildcard sees a new topic within ~3 s.
@@ -171,10 +171,19 @@ backend's subscriptions close after the last viewer leaves.
 ## Building
 
 `cargo build --release` (binary `target/release/zenoh-web-relay`). zenoh-web is a git dependency at a pinned
-revision plus its crates.io version, as in the other zenoh-web repos. There is no Nix flake yet; for one (crate2nix,
-like the other repos): the build scripts of `openh264-sys2`, `zstd-sys` and `ring` (rustls) compile C/assembly, so a
-cross build needs a C toolchain for the target, and nothing is needed at runtime beyond the system libraries. The
-e2e test additionally needs Deno and downloads Chrome (astral).
+revision plus its crates.io version, as in the other zenoh-web repos. The e2e test additionally needs Deno and
+downloads Chrome (astral).
+
+With nix (zenoh-web's `lib.crossRust`: crate2nix, one derivation per crate shared with the other zenoh-web flakes;
+Linux cross compiled from a Mac with zig as the C compiler and linker, glibc 2.35):
+
+```sh
+nix build .#zenoh-web-relay --max-jobs auto                 # native
+nix build .#zenoh-web-relay-aarch64-linux --max-jobs auto   # e.g. for a Jetson (GStreamer is opened at runtime)
+nix build .#zenoh-web-relay-x86_64-linux --max-jobs auto
+```
+
+After changing `Cargo.lock`, regenerate `Cargo.nix`: `nix run github:jeff-hykin/zenoh-web#crate2nix -- generate`.
 
 ## License
 

@@ -46,8 +46,9 @@ use zenoh_web::client::{Client, ClientOptions, ConnectionState, Delivery, Lease,
 use zenoh_web::{CodecOutput, IceServer, Server, ServerBuilder};
 
 pub use zenoh_web;
-/// Hardware encoders built against the same zenoh-web (for `.viewers(|server| server.video_encoder(...))`).
-pub use zenoh_web_encoders;
+/// Hardware encoders (`zenoh_dimos_codecs::encoders`) built against the same zenoh-web (for
+/// `.viewers(|server| server.video_encoder(...))`).
+pub use zenoh_dimos_codecs;
 
 /// The key chunk under which the relay puts what it pulled through a codec (`@relay/<codec>/<key>`); `**` never
 /// matches it, so raw viewers don't see it.

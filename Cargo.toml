@@ -25,8 +25,8 @@ zenoh-ext = { version = "=1.6.2", features = ["unstable"] }
 openh264 = "0.9"
 # decodes the backend's Opus once per audio stream (libopus transpiled to Rust, as zenoh-web encodes it)
 unsafe-libopus = "0.2"
-# hardware re-encoding: VideoToolbox, GStreamer (loaded at runtime), openh264 fallback
-zenoh-web-encoders = { version = "0.1.0", git = "https://github.com/jeff-hykin/zenoh-web-encoders", rev = "af0cffa3d67876f7c39e5386f6776b3b17212901", features = ["videotoolbox", "gstreamer"] }
+# hardware re-encoding (zenoh_dimos_codecs::encoders): VideoToolbox, GStreamer (loaded at runtime), openh264 fallback
+zenoh-dimos-codecs = { version = "0.2.0", git = "https://github.com/jeff-hykin/zenoh-dimos-codecs", rev = "89b5762e2acf31c28eeef1fc6d98d53a7d821235", features = ["videotoolbox", "gstreamer"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 axum = "0.8"
 anyhow = "1"
