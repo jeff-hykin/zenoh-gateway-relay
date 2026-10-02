@@ -18,7 +18,11 @@ browsers ──WebRTC──▶ zenoh-web-relay (public host)  ◀──WebRTC (1
   first viewer and close one second after its last.
 - **The relay decodes once and re-encodes per quality bucket.** Each camera is decoded once (openh264) and the
   pictures feed the relay's embedded zenoh-web `Server` as a video codec of the same name, whose encode sessions
-  are shared by viewers at similar grants and whose allocator fits each viewer's link.
+  are shared by viewers at similar grants and whose allocator fits each viewer's link. Re-encoding uses a hardware
+  encoder when one works (`--video-encoder auto`: VideoToolbox, or GStreamer's `nvv4l2h264enc` / `nvh264enc` /
+  VAAPI, from [zenoh-web-encoders](https://github.com/jeff-hykin/zenoh-web-encoders)), else openh264.
+- **Audio codecs too:** the backend's Opus is decoded once (libopus) and the PCM feeds an audio codec of the same
+  name, which the relay's server encodes to Opus per viewer.
 - **Data topics are pulled once and fanned out.** Fields and data codecs (depth, point clouds) are passed through
   at full quality without re-encoding (zstd per message if it shrinks it); raw topics too.
 - **Viewers' puts, queries and leases go to the backend** through the relay's one connection: a put becomes a put
@@ -38,7 +42,7 @@ browsers ──WebRTC──▶ zenoh-web-relay (public host)  ◀──WebRTC (1
 zenoh-web-relay --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 --backend-name robot \
     --backend-token "$RELAY_TOKEN" --auth-file viewers.json5 \
     [--zenoh-config router.json5] [--ice-server turn:user:pass@turn.example.com:3478] \
-    [--udp-ports 50000-50100] [--upstream-max-bitrate 8e6] [--serve ./viewer-page]
+    [--udp-ports 50000-50100] [--upstream-max-bitrate 8e6] [--video-encoder auto] [--serve ./viewer-page]
 ```
 
 - `--listen` (repeatable): the router's endpoints for the backend. TLS needs certificates in `--zenoh-config`.
@@ -47,6 +51,7 @@ zenoh-web-relay --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 --backend-name rob
   forwarded puts, and the backend's stats of the relay's connection).
 - `--auth-file`: zenoh-web-cli's format, `{ tokens: { "<token>": "read" | "write" | "lease" | <grant> },
   leaseGroups: { "<group>": ["<key expr>"] } }`, re-read when it changes (removed or changed tokens are revoked).
+- `--video-encoder`: `auto` (default), `software`, `videotoolbox` or `gstreamer`, as zenoh-web-cli's.
 - `--ice-server` / `--udp-ports`: the viewers' side; `--upstream-ice-server`: the relay → backend connection
   (default: the backend's own ICE servers).
 
@@ -95,7 +100,8 @@ let server = zenoh_web::Server::builder()
     .await?; // no bind(): no HTTP listener on the robot
 ```
 
-(zenoh-web-cli does not have a `--zenoh-signalling` flag yet; until it does, embed the server as above.)
+or with the stock command: `zenoh-web --zenoh-config robot-zenoh.json5 --zenoh-signalling robot --no-http
+--auth-file relay-token.json5` (zenoh-web-cli; the auth file holds the relay's token).
 
 ## Library
 
@@ -105,7 +111,14 @@ let relay = zenoh_web_relay::Relay::builder("robot")
     .zenoh_config(router_config)
     .backend_token("relay-secret")
     .upstream_max_bitrate(8e6)
-    .viewers(|server| server.authorize(my_hook).ice_servers(ice).udp_ports(50000..=50100))
+    .viewers(move |server| {
+        let server = server.authorize(my_hook).ice_servers(ice).udp_ports(50000..=50100);
+        // hardware re-encoding, as --video-encoder auto
+        match zenoh_web_relay::zenoh_web_encoders::select(zenoh_web_relay::zenoh_web_encoders::Backend::Auto) {
+            Ok(selected) => match selected.factory { Some(factory) => server.video_encoder(factory), None => server },
+            Err(_) => server,
+        }
+    })
     .build()
     .await?;                                 // waits for the backend's first connection
 relay.serve_with_shutdown(("0.0.0.0", 7448), shutdown_signal).await?;
@@ -119,12 +132,14 @@ zenoh dials out to the relay: 2 cameras at 640x480 30 fps through a video codec,
 topic at 10 Hz), then opens 1 and then 3 headless Chrome viewers. Each viewer subscribes to both cameras (shown in
 `<video>` elements) and both data topics, and puts once. Apple M-series laptop, 10 s windows:
 
-| viewers | backend subscriptions | backend encoders | backend frames encoded/s | backend CPU | relay CPU | each viewer |
-|---|---|---|---|---|---|---|
-| 1 | 4 (1 per camera + 2 data) | 2 | 54 | 7.5 % / 9.2 % | 10 % / 12 % | 27 fps per camera decoded in `<video>`, data 8-10 Hz |
-| 3 | 4 (1 per camera + 2 data) | 2 | 60 | 7.7 % / 8.0 % | 14 % / 17 % | 30 fps per camera decoded in `<video>`, data 10 Hz |
+| viewers | backend subscriptions | backend encoders | backend frames encoded/s | backend CPU | relay CPU (openh264) | relay CPU (VideoToolbox) | each viewer |
+|---|---|---|---|---|---|---|---|
+| 1 | 4 (1 per camera + 2 data) | 2 | 54 | 7.3-9.2 % | 10-12 % | 6.2-6.6 % | 27 fps per camera decoded in `<video>`, data 8-10 Hz |
+| 3 | 4 (1 per camera + 2 data) | 2 | 60 | 7.7-9.7 % | 14-17 % | 11.6-11.9 % | 30 fps per camera decoded in `<video>`, data 10 Hz |
 
-(two runs; CPU is % of one core. The backend's work does not grow with viewers; the relay's does.)
+(four runs: two with the relay re-encoding in software, two with `--video-encoder auto` picking VideoToolbox; CPU is %
+of one core. The backend's work does not grow with viewers: the same 2 encoders and 60 frames/s; the 1-viewer window
+still includes the first second's ramp to 30 fps. The relay's work does grow.)
 
 It also checks the viewers' puts reach the backend, listTopics, that a bad or missing token is refused, and that the
 backend's subscriptions close after the last viewer leaves.
@@ -133,12 +148,10 @@ backend's subscriptions close after the last viewer leaves.
 
 - **One backend per relay**, chosen by `--backend-name`. The viewers' codecs mirror the backend's at its first
   connection (the relay waits for it before serving viewers); codecs added on a reconnect are not picked up.
-- **Audio codecs are not relayed** (the relay would need to decode Opus to PCM; viewers subscribing to one get
-  "unknown codec").
-- **Decoding is software H.264 (openh264), video codecs must produce H.264.** A backend whose encoder sends VP8,
-  VP9 or AV1 is not decoded. Re-encoding uses zenoh-web's default encoder (openh264): a hardware encoder plugs in
-  through `.viewers(|server| server.video_encoder(...))` (zenoh-web-encoders) when it is built against the same
-  zenoh-web revision.
+- **Decoding is software H.264 (openh264): video codecs must produce H.264.** A backend whose encoder sends VP8,
+  VP9 or AV1 is not decoded. Audio is decoded at 48 kHz (the rate zenoh-web's Opus tracks use).
+- When embedding, use the re-exported `zenoh_web_relay::zenoh_web` and `zenoh_web_relay::zenoh_web_encoders` (other
+  revisions of them are different crates to cargo).
 - **Wildcard viewer subscriptions** expand over the backend's listed topics (liveliness tokens by default; keys that
   only appear when published need `topic_probe_ms`), so a wildcard sees a new topic within ~3 s.
 - **Data passes through at full quality**: viewers' allocators trade Hz, not size, for fields/data topics.

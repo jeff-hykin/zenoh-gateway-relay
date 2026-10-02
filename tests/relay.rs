@@ -4,7 +4,7 @@
 use std::time::Duration;
 use tokio::time::timeout;
 use zenoh_web::client::{Client, ClientOptions, Delivery, Message, PublisherOptions, SubscribeOptions};
-use zenoh_web::{Grant, Server, zenoh};
+use zenoh_web::{AudioPcm, Codec, CodecOutput, CodecSample, DecodedFrame, Grant, Server, zenoh};
 use zenoh_web_relay::Relay;
 
 fn isolated(extra: &[(&str, String)]) -> zenoh::Config {
@@ -17,12 +17,31 @@ fn isolated(extra: &[(&str, String)]) -> zenoh::Config {
     config
 }
 
+/// Any sample -> 20 ms of a 440 Hz tone, 48 kHz mono.
+struct Tone;
+
+impl Codec for Tone {
+    fn name(&self) -> &str {
+        "test-tone"
+    }
+
+    fn output(&self) -> CodecOutput {
+        CodecOutput::Audio
+    }
+
+    fn decode(&self, _sample: &CodecSample<'_>) -> anyhow::Result<DecodedFrame> {
+        let samples = (0..960).map(|index| ((index as f64 * 440.0 / 48_000.0 * std::f64::consts::TAU).sin() * 8000.0) as i16).collect();
+        Ok(DecodedFrame::Audio(AudioPcm::new(48_000, 1, samples)?))
+    }
+}
+
 /// A backend (lease group `drive` on `cmd/**`) whose zenoh dials out to `endpoint`.
 async fn start_backend(endpoint: &str) -> (Server, zenoh::Session) {
     let session = zenoh::open(isolated(&[("connect/endpoints", format!("[\"{endpoint}\"]"))])).await.unwrap();
     let backend = Server::builder()
         .session(session.clone())
         .zenoh_signalling("robot")
+        .codec(Tone)
         .lease_group("drive", ["cmd/**"])
         .authorize(|token, _| if token == Some("relay-secret") { Ok(Grant::all()) } else { Err("unknown token".into()) })
         .build()
@@ -122,6 +141,28 @@ async fn relays_data_puts_queries_and_leases() {
     assert!(backend.expire_lease("drive", "operator took over").await);
     let lost = timeout(Duration::from_secs(5), lease.wait_lost()).await.unwrap();
     assert!(lost.contains("operator took over"), "{lost}");
+
+    // audio: the backend's Opus decoded once at the relay and encoded again for the viewer
+    let tone_putter = {
+        let session = session.clone();
+        tokio::spawn(async move {
+            loop {
+                let _ = session.put("robot/mic", vec![0u8]).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+    };
+    let mut mic = first.subscribe("robot/mic", SubscribeOptions { codec: Some("test-tone".into()), ..Default::default() }).await.unwrap();
+    let mut packets = 0;
+    while packets < 10 {
+        if let Message::Audio(packet) = timeout(Duration::from_secs(10), mic.recv()).await.unwrap().unwrap() {
+            assert!(!packet.data.is_empty());
+            packets += 1;
+        }
+    }
+    assert!(backend.subscriptions().contains(&("robot/mic".to_owned(), Some("test-tone".to_owned()))));
+    drop(mic);
+    tone_putter.abort();
 
     // the backend restarts: the relay reconnects and viewers' subscriptions resume
     putter.abort();

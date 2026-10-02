@@ -1,7 +1,7 @@
 //! The relay's side of each backend codec: same name, reading what the relay puts under `@relay/<codec>/<key>`.
 
 use anyhow::{Result, ensure};
-use zenoh_web::{Codec, CodecOutput, CodecSample, Compress, DecodedFrame, VideoImage};
+use zenoh_web::{AudioPcm, Codec, CodecOutput, CodecSample, Compress, DecodedFrame, VideoImage};
 
 /// Where the relay puts what it pulled through `codec` (see `Codec::key_prefix`).
 pub fn prefix(codec: &str) -> String {
@@ -89,5 +89,46 @@ impl Codec for RelayData {
 
     fn estimated_bytes(&self, payload_bytes: usize, _quality: f64) -> f64 {
         payload_bytes as f64
+    }
+}
+
+/// A backend audio codec: the relay decodes the backend's Opus once and puts the PCM (`u8 channels | i16 samples`,
+/// interleaved, little endian, 48 kHz); the viewers' server encodes it to Opus again per viewer.
+pub struct RelayAudio {
+    name: String,
+    prefix: String,
+}
+
+impl RelayAudio {
+    pub fn new(name: &str) -> Self {
+        RelayAudio { name: name.to_owned(), prefix: prefix(name) }
+    }
+}
+
+/// `u8 channels | i16 samples` for [`RelayAudio`].
+pub fn pcm_payload(channels: u8, samples: &[i16]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(1 + samples.len() * 2);
+    payload.push(channels);
+    payload.extend(samples.iter().flat_map(|sample| sample.to_le_bytes()));
+    payload
+}
+
+impl Codec for RelayAudio {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn output(&self) -> CodecOutput {
+        CodecOutput::Audio
+    }
+
+    fn key_prefix(&self) -> Option<&str> {
+        Some(&self.prefix)
+    }
+
+    fn decode(&self, sample: &CodecSample<'_>) -> Result<DecodedFrame> {
+        let (channels, samples) = sample.payload.split_first().ok_or_else(|| anyhow::anyhow!("not relay PCM"))?;
+        let samples = samples.chunks_exact(2).map(|pair| i16::from_le_bytes([pair[0], pair[1]])).collect();
+        Ok(DecodedFrame::Audio(AudioPcm::new(48_000, *channels, samples)?))
     }
 }

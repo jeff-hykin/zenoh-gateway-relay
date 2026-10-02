@@ -23,6 +23,10 @@ zenoh = "=1.6.2"
 zenoh-ext = { version = "=1.6.2", features = ["unstable"] }
 # decodes the backend's H.264 once per camera (builds its C sources, like zenoh-web's encoder)
 openh264 = "0.9"
+# decodes the backend's Opus once per audio stream (libopus transpiled to Rust, as zenoh-web encodes it)
+unsafe-libopus = "0.2"
+# hardware re-encoding: VideoToolbox, GStreamer (loaded at runtime), openh264 fallback
+zenoh-web-encoders = { version = "0.1.0", git = "https://github.com/jeff-hykin/zenoh-web-encoders", rev = "af0cffa3d67876f7c39e5386f6776b3b17212901", features = ["videotoolbox", "gstreamer"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 axum = "0.8"
 anyhow = "1"

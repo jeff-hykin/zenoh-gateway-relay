@@ -116,6 +116,7 @@ try {
     const backendOutput = lines(backend.stdout, "backend")
     await backendOutput.waitFor((line) => line === "READY", 15000)
     await relayOutput.waitFor((line) => line.includes("listening on"), 20000)
+    console.log(`relay ${relayOutput.all.find((line) => line.includes("video encoder:"))?.replace(/.*\] /, "") ?? "video encoder: ?"}`)
     check(true, "the backend dialled out and the relay connected to it over zenoh signalling (the backend has no HTTP listener)")
     /** @returns {{ subscriptions: [string, string | null][], encoders: number, encodedFrames: number }} */
     const backendStats = () => JSON.parse(backendOutput.all.findLast((line) => line.startsWith("STATS "))?.slice(6) ?? "{}")

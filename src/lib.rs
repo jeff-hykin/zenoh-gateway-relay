@@ -46,6 +46,8 @@ use zenoh_web::client::{Client, ClientOptions, ConnectionState, Delivery, Lease,
 use zenoh_web::{CodecOutput, IceServer, Server, ServerBuilder};
 
 pub use zenoh_web;
+/// Hardware encoders built against the same zenoh-web (for `.viewers(|server| server.video_encoder(...))`).
+pub use zenoh_web_encoders;
 
 /// The key chunk under which the relay puts what it pulled through a codec (`@relay/<codec>/<key>`); `**` never
 /// matches it, so raw viewers don't see it.
@@ -156,6 +158,7 @@ impl RelayBuilder {
                 "video" => CodecOutput::Video,
                 "fields" => CodecOutput::Fields,
                 "data" => CodecOutput::Data,
+                "audio" => CodecOutput::Audio,
                 other => {
                     warn!("codec {} ({other}) is not relayed", codec.name);
                     continue;
@@ -163,6 +166,7 @@ impl RelayBuilder {
             };
             builder = match output {
                 CodecOutput::Video => builder.codec(codecs::RelayVideo::new(&codec.name)),
+                CodecOutput::Audio => builder.codec(codecs::RelayAudio::new(&codec.name)),
                 _ => builder.codec(codecs::RelayData::new(&codec.name, output)),
             };
             kinds.insert(codec.name.clone(), output);
@@ -242,7 +246,7 @@ struct Stream {
 #[derive(Default)]
 struct StreamStats {
     messages: AtomicU64,
-    pictures: AtomicU64,
+    decoded: AtomicU64,
     dropped_access_units: AtomicU64,
 }
 
@@ -484,6 +488,7 @@ async fn run_stream(state: Weak<State>, client: Client, (key, codec): StreamId, 
         drop(strong);
         let result = match (kind, &codec) {
             (Some(CodecOutput::Video), Some(codec)) => pull_video(&client, &local, &key, codec, bitrate, &stats).await,
+            (Some(CodecOutput::Audio), Some(codec)) => pull_audio(&client, &local, &key, codec, &stats).await,
             (_, Some(codec)) => pull_data(&client, &local, &key, Some(codec), &stats).await,
             (_, None) => pull_data(&client, &local, &key, None, &stats).await,
         };
@@ -549,6 +554,70 @@ async fn pull_video(client: &Client, local: &zenoh::Session, key: &str, codec: &
     }
 }
 
+/// An audio codec: the backend's Opus decoded once (48 kHz, the packet's channels), the PCM put for the viewers' Opus
+/// encoders.
+async fn pull_audio(client: &Client, local: &zenoh::Session, key: &str, codec: &str, stats: &StreamStats) -> Result<()> {
+    let mut subscription = client.subscribe(key, SubscribeOptions { codec: Some(codec.to_owned()), ..Default::default() }).await?;
+    let local_key = format!("{}/{key}", codecs::prefix(codec));
+    let mut decoder: Option<OpusDecoder> = None;
+    while let Some(message) = subscription.recv().await {
+        let Message::Audio(packet) = message else { continue };
+        stats.messages.fetch_add(1, Ordering::Relaxed);
+        let channels = OpusDecoder::channels(&packet.data)?;
+        if decoder.as_ref().is_none_or(|decoder| decoder.channels != channels) {
+            decoder = Some(OpusDecoder::new(channels)?);
+        }
+        let samples = decoder.as_mut().unwrap().decode(&packet.data)?;
+        stats.decoded.fetch_add(1, Ordering::Relaxed);
+        local.put(&local_key, codecs::pcm_payload(channels, &samples)).await.map_err(|error| anyhow!("{error}"))?;
+    }
+    Err(anyhow!("the subscription closed"))
+}
+
+/// libopus' decoder (transpiled to Rust, as zenoh-web's encoder) at 48 kHz.
+struct OpusDecoder {
+    decoder: *mut unsafe_libopus::OpusDecoder,
+    channels: u8,
+}
+
+// SAFETY: the decoder is plain memory used by one task at a time
+unsafe impl Send for OpusDecoder {}
+
+impl OpusDecoder {
+    fn new(channels: u8) -> Result<Self> {
+        let mut error = 0;
+        // SAFETY: valid rate and channel count; the result is checked
+        let decoder = unsafe { unsafe_libopus::opus_decoder_create(48_000, channels as i32, &mut error) };
+        anyhow::ensure!(!decoder.is_null() && error == 0, "opus_decoder_create failed ({error})");
+        Ok(OpusDecoder { decoder, channels })
+    }
+
+    fn channels(packet: &[u8]) -> Result<u8> {
+        anyhow::ensure!(!packet.is_empty(), "empty Opus packet");
+        // SAFETY: reads the packet's first byte
+        let channels = unsafe { unsafe_libopus::opus_packet_get_nb_channels(packet.as_ptr()) };
+        anyhow::ensure!(channels == 1 || channels == 2, "bad Opus packet");
+        Ok(channels as u8)
+    }
+
+    fn decode(&mut self, packet: &[u8]) -> Result<Vec<i16>> {
+        // the longest Opus frame: 120 ms at 48 kHz
+        let mut samples = vec![0i16; 5760 * self.channels as usize];
+        // SAFETY: `samples` holds 5760 frames of `channels` samples
+        let frames = unsafe { unsafe_libopus::opus_decode(self.decoder, packet.as_ptr(), packet.len() as i32, samples.as_mut_ptr(), 5760, 0) };
+        anyhow::ensure!(frames >= 0, "opus_decode failed ({frames})");
+        samples.truncate(frames as usize * self.channels as usize);
+        Ok(samples)
+    }
+}
+
+impl Drop for OpusDecoder {
+    fn drop(&mut self) {
+        // SAFETY: created by opus_decoder_create, destroyed once
+        unsafe { unsafe_libopus::opus_decoder_destroy(self.decoder) }
+    }
+}
+
 fn decode_thread(units: std::sync::mpsc::Receiver<Vec<u8>>, pictures: tokio::sync::mpsc::Sender<Vec<u8>>, stats: Arc<StreamStats>) {
     use openh264::formats::YUVSource;
     let Ok(mut decoder) = openh264::decoder::Decoder::new() else { return warn!("openh264 decoder failed to start") };
@@ -574,7 +643,7 @@ fn decode_thread(units: std::sync::mpsc::Receiver<Vec<u8>>, pictures: tokio::syn
                 i420.extend_from_slice(&plane[row * stride..][..width / 2]);
             }
         }
-        stats.pictures.fetch_add(1, Ordering::Relaxed);
+        stats.decoded.fetch_add(1, Ordering::Relaxed);
         if pictures.blocking_send(codecs::picture_payload(width as u32, height as u32, &i420)).is_err() {
             return;
         }
@@ -704,7 +773,7 @@ impl Relay {
                     "key": key,
                     "codec": codec,
                     "messages": stream.stats.messages.load(Ordering::Relaxed),
-                    "pictures": stream.stats.pictures.load(Ordering::Relaxed),
+                    "decoded": stream.stats.decoded.load(Ordering::Relaxed),
                     "droppedAccessUnits": stream.stats.dropped_access_units.load(Ordering::Relaxed),
                     "closing": stream.unwanted_since.is_some(),
                 })

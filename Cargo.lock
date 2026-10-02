@@ -1766,6 +1766,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5003,7 +5013,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "968571b0b585c5be1f19c553b368994424a869af46a4785bf5a3248194a97172"
 dependencies = [
  "git-version",
- "libloading",
+ "libloading 0.8.9",
  "serde",
  "stabby",
  "tracing",
@@ -5130,7 +5140,7 @@ dependencies = [
  "humantime",
  "lazy_static",
  "libc",
- "libloading",
+ "libloading 0.8.9",
  "pnet_datalink",
  "schemars 0.8.22",
  "serde",
@@ -5174,6 +5184,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "zenoh-web-encoders"
+version = "0.1.0"
+source = "git+https://github.com/jeff-hykin/zenoh-web-encoders?rev=af0cffa3d67876f7c39e5386f6776b3b17212901#af0cffa3d67876f7c39e5386f6776b3b17212901"
+dependencies = [
+ "anyhow",
+ "libloading 0.9.0",
+ "log",
+ "zenoh-web",
+]
+
+[[package]]
 name = "zenoh-web-relay"
 version = "0.1.0"
 dependencies = [
@@ -5187,9 +5208,11 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "unsafe-libopus",
  "zenoh",
  "zenoh-ext",
  "zenoh-web",
+ "zenoh-web-encoders",
 ]
 
 [[package]]
