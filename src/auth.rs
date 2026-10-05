@@ -1,4 +1,4 @@
-//! `--auth-file`: the viewers' tokens, the format of zenoh-web-cli's (`{ tokens: { "<token>": "read" | "write" |
+//! `--auth-file`: the viewers' tokens, the format of zenoh-gateway-cli's (`{ tokens: { "<token>": "read" | "write" |
 //! "lease" | <grant> }, leaseGroups: { "<group>": ["<key expr>"] } }`), re-read when it changes.
 
 use anyhow::{Result, anyhow, bail};
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use zenoh_web::{Grant, Server, ServerBuilder};
+use zenoh_gateway::{Grant, Server, ServerBuilder};
 
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]

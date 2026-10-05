@@ -1,10 +1,10 @@
-//! zenoh-web-relay: one zenoh-web backend (e.g. a robot) fanned out to many browsers, keeping the load off the backend.
+//! zenoh-gateway-relay: one zenoh-gateway backend (e.g. a robot) fanned out to many browsers, keeping the load off the backend.
 //!
 //! - The backend needs no inbound ports: its zenoh dials out to the relay's zenoh router, and the relay signals to the
-//!   backend's zenoh-web over that link (`zenoh_signalling` / `Client::connect_zenoh`). WebRTC then flows from the
+//!   backend's zenoh-gateway over that link (`zenoh_signalling` / `Client::connect_zenoh`). WebRTC then flows from the
 //!   backend to the relay's address.
 //! - The relay pulls each camera once, at best quality, whatever the number of viewers, decodes it once, and serves
-//!   it again through its own zenoh-web [`Server`], whose encoder sharing and allocator re-encode it per quality
+//!   it again through its own zenoh-gateway [`Server`], whose encoder sharing and allocator re-encode it per quality
 //!   bucket for the viewers. Data topics are pulled once and passed through. Upstream subscriptions open with the
 //!   first viewer and close after the last.
 //! - Viewers' puts, queries and leases go to the backend through the relay's one connection; the relay authorizes
@@ -12,7 +12,7 @@
 //!
 //! ```no_run
 //! # async fn run() -> anyhow::Result<()> {
-//! let relay = zenoh_web_relay::Relay::builder("robot")
+//! let relay = zenoh_gateway_relay::Relay::builder("robot")
 //!     .listen("tls/0.0.0.0:7447")
 //!     .backend_token("relay-secret")
 //!     .viewers(|server| server.serve_dir("web"))
@@ -42,11 +42,11 @@ use tokio::task::JoinHandle;
 use zenoh::key_expr::keyexpr;
 use zenoh::qos::CongestionControl;
 use zenoh_ext::{AdvancedPublisherBuilderExt, CacheConfig};
-use zenoh_web::client::{Client, ClientOptions, ConnectionState, Delivery, Lease, Message, Publisher, PublisherOptions, SubscribeOptions};
-use zenoh_web::{EncodingOutput, IceServer, Server, ServerBuilder};
+use zenoh_gateway::client::{Client, ClientOptions, ConnectionState, Delivery, Lease, Message, Publisher, PublisherOptions, SubscribeOptions};
+use zenoh_gateway::{EncodingOutput, IceServer, Server, ServerBuilder};
 
-pub use zenoh_web;
-/// Hardware encoders (`zenoh_dimos_codecs::encoders`) built against the same zenoh-web (for
+pub use zenoh_gateway;
+/// Hardware encoders (`zenoh_dimos_codecs::encoders`) built against the same zenoh-gateway (for
 /// `.viewers(|server| server.video_encoder(...))`).
 pub use zenoh_dimos_codecs;
 
@@ -54,9 +54,9 @@ pub use zenoh_dimos_codecs;
 /// matches it, so raw viewers don't see it.
 pub const RELAY_PREFIX: &str = "@relay";
 /// `GET` this path for the relay's stats (JSON).
-pub const STATS_PATH: &str = "/zenoh-web-relay/stats";
+pub const STATS_PATH: &str = "/zenoh-gateway-relay/stats";
 /// Attachment of the relay's own raw puts on the viewers' session, so they aren't forwarded back.
-const OWN_PUT: &[u8] = b"zenoh-web-relay";
+const OWN_PUT: &[u8] = b"zenoh-gateway-relay";
 /// An upstream stream nobody watches closes after this (a viewer reloading the page keeps it).
 const LINGER: Duration = Duration::from_secs(1);
 const RECONCILE_INTERVAL: Duration = Duration::from_millis(500);
@@ -100,7 +100,7 @@ impl RelayBuilder {
         self
     }
 
-    /// STUN/TURN servers for the relay's connection to the backend. Default: the backend's (`zenoh-web/<name>/ice`).
+    /// STUN/TURN servers for the relay's connection to the backend. Default: the backend's (`zenoh-gateway/<name>/ice`).
     pub fn upstream_ice_servers(mut self, servers: impl IntoIterator<Item = IceServer>) -> Self {
         self.upstream_ice_servers = Some(servers.into_iter().collect());
         self
@@ -119,7 +119,7 @@ impl RelayBuilder {
         self
     }
 
-    /// Configures the viewers' zenoh-web server (authorize hook, lease groups, ICE servers, UDP ports, static files,
+    /// Configures the viewers' zenoh-gateway server (authorize hook, lease groups, ICE servers, UDP ports, static files,
     /// video policy, hardware encoder...). The relay sets its session and codecs.
     pub fn viewers(mut self, configure: impl FnOnce(ServerBuilder) -> ServerBuilder + Send + 'static) -> Self {
         self.viewers = Box::new(configure);
@@ -150,7 +150,7 @@ impl RelayBuilder {
             heartbeat_misses: 10,
             ..Default::default()
         };
-        info!("waiting for backend {:?} on zenoh-web/{}/offer", self.backend_name, self.backend_name);
+        info!("waiting for backend {:?} on zenoh-gateway/{}/offer", self.backend_name, self.backend_name);
         let client = connect(&router, &self.backend_name, &client_options).await?;
         let mut kinds = HashMap::new();
         let mut builder = (self.viewers)(Server::builder());
@@ -384,7 +384,7 @@ async fn watch_lease(state: Weak<State>, group: String, lease: Arc<Lease>) {
 /// Keeps a backend connection: on loss, every upstream stream closes and the relay reconnects.
 async fn supervise(state: Weak<State>, mut client: Client) {
     let Some(strong) = state.upgrade() else { return };
-    let querier = strong.router.declare_querier(format!("{}/{}/offer", zenoh_web::SIGNALLING_PREFIX, strong.backend_name)).await;
+    let querier = strong.router.declare_querier(format!("{}/{}/offer", zenoh_gateway::SIGNALLING_PREFIX, strong.backend_name)).await;
     drop(strong);
     let querier = match querier {
         Ok(querier) => querier,
@@ -418,7 +418,7 @@ async fn backend_lost(client: &Client, querier: &zenoh::query::Querier<'_>) -> &
             _ = ticker.tick() => {}
         }
         if querier.matching_status().await.is_ok_and(|status| !status.matching()) {
-            return "its zenoh-web left zenoh";
+            return "its zenoh-gateway left zenoh";
         }
         if client.state() == ConnectionState::Degraded {
             if degraded_since.get_or_insert_with(Instant::now).elapsed() > DEGRADED_LIMIT {
@@ -576,7 +576,7 @@ async fn pull_audio(client: &Client, local: &zenoh::Session, key: &str, codec: &
     Err(anyhow!("the subscription closed"))
 }
 
-/// libopus' decoder (transpiled to Rust, as zenoh-web's encoder) at 48 kHz.
+/// libopus' decoder (transpiled to Rust, as zenoh-gateway's encoder) at 48 kHz.
 struct OpusDecoder {
     decoder: *mut unsafe_libopus::OpusDecoder,
     channels: u8,
@@ -731,7 +731,7 @@ pub struct Relay {
 }
 
 impl Relay {
-    /// Starts configuring a relay for the backend whose zenoh-web server has `zenoh_signalling(backend_name)`.
+    /// Starts configuring a relay for the backend whose zenoh-gateway server has `zenoh_signalling(backend_name)`.
     pub fn builder(backend_name: impl Into<String>) -> RelayBuilder {
         RelayBuilder {
             backend_name: backend_name.into(),
@@ -745,7 +745,7 @@ impl Relay {
         }
     }
 
-    /// The viewers' zenoh-web server.
+    /// The viewers' zenoh-gateway server.
     pub fn server(&self) -> &Server {
         &self.state.server
     }
@@ -806,7 +806,7 @@ impl Relay {
     /// Serves [`router`](Self::router) on `addr` until `signal`, then [`shutdown`](Self::shutdown).
     pub async fn serve_with_shutdown(&self, addr: impl ToSocketAddrs, signal: impl Future<Output = ()> + Send + 'static) -> Result<()> {
         let listener = tokio::net::TcpListener::bind(addr).await.context("binding the HTTP listener")?;
-        info!("zenoh-web-relay listening on http://{}", listener.local_addr()?);
+        info!("zenoh-gateway-relay listening on http://{}", listener.local_addr()?);
         let served = axum::serve(listener, self.router()).with_graceful_shutdown(signal).await;
         self.shutdown().await?;
         served.context("HTTP server")

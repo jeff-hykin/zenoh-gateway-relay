@@ -1,27 +1,27 @@
-//! The `zenoh-web-relay` command: [zenoh_web_relay::Relay] with an auth file and ICE options.
+//! The `zenoh-gateway-relay` command: [zenoh_gateway_relay::Relay] with an auth file and ICE options.
 
 use clap::Parser;
 use log::info;
 use std::path::PathBuf;
-use zenoh_web::IceServer;
-use zenoh_web_relay::{Relay, auth::AuthFileTokens, zenoh_web};
+use zenoh_gateway::IceServer;
+use zenoh_gateway_relay::{Relay, auth::AuthFileTokens, zenoh_gateway};
 
 #[derive(Parser, Debug)]
-#[command(name = "zenoh-web-relay", version, about = "Fan one zenoh-web backend out to many browsers, keeping the load off the backend")]
+#[command(name = "zenoh-gateway-relay", version, about = "Fan one zenoh-gateway backend out to many browsers, keeping the load off the backend")]
 struct Cli {
     /// zenoh endpoint the relay's router listens on for the backend, e.g. tls/0.0.0.0:7447 (repeatable).
     #[arg(long, required = true)]
     listen: Vec<String>,
-    /// HTTP address for viewers (signalling, static files, /zenoh-web-relay/stats).
+    /// HTTP address for viewers (signalling, static files, /zenoh-gateway-relay/stats).
     #[arg(long, default_value = "0.0.0.0:7448")]
     http: String,
-    /// The backend's zenoh-web name (its ServerBuilder::zenoh_signalling(name); zenoh-web-cli --zenoh-signalling).
+    /// The backend's zenoh-gateway name (its ServerBuilder::zenoh_signalling(name); zenoh-gateway-cli --zenoh-signalling).
     #[arg(long)]
     backend_name: String,
     /// The relay's token for the backend.
     #[arg(long)]
     backend_token: Option<String>,
-    /// Viewers' tokens: a json5 file mapping tokens to read / write / lease / a grant (zenoh-web-cli's format);
+    /// Viewers' tokens: a json5 file mapping tokens to read / write / lease / a grant (zenoh-gateway-cli's format);
     /// re-read when it changes. Without it every viewer may do everything the relay may.
     #[arg(long)]
     auth_file: Option<PathBuf>,
@@ -72,7 +72,7 @@ async fn terminated() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let filter = std::env::var("RUST_LOG").ok().filter(|filter| !filter.is_empty()).unwrap_or_else(|| "info,zenoh=warn,zenoh_ext=warn,zenoh_web=info,zenoh_web_relay=info,rtc=warn,webrtc=warn".to_owned());
+    let filter = std::env::var("RUST_LOG").ok().filter(|filter| !filter.is_empty()).unwrap_or_else(|| "info,zenoh=warn,zenoh_ext=warn,zenoh_gateway=info,zenoh_gateway_relay=info,rtc=warn,webrtc=warn".to_owned());
     env_logger::Builder::new().parse_filters(&filter).init();
     let cli = Cli::parse();
     let video = zenoh_dimos_codecs::encoders::select(cli.video_encoder)?;
@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
         builder = builder.listen(endpoint);
     }
     if let Some(path) = &cli.zenoh_config {
-        builder = builder.zenoh_config(zenoh_web::zenoh::Config::from_file(path).map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?);
+        builder = builder.zenoh_config(zenoh_gateway::zenoh::Config::from_file(path).map_err(|error| anyhow::anyhow!("{}: {error}", path.display()))?);
     }
     if let Some(token) = &cli.backend_token {
         builder = builder.backend_token(token);

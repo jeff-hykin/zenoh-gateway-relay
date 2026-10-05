@@ -1,4 +1,4 @@
-//! The e2e test's backend: a zenoh-web server with no HTTP listener whose zenoh dials out to the relay, answering
+//! The e2e test's backend: a zenoh-gateway server with no HTTP listener whose zenoh dials out to the relay, answering
 //! signalling over zenoh (`zenoh_signalling`). It publishes test cameras and data topics, prints what viewers put,
 //! and reports its own work once a second, for the test to check the relay keeps it flat:
 //!
@@ -14,14 +14,14 @@ use clap::Parser;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
-use zenoh_web::{Channel, DecodedFrame, EncodeOptions, EncodingOutput, EncodingSample, MessageEncoding, EncodedVideo, Fields, Grant, H264Encoder, Server, VideoEncoder, VideoFormat, VideoImage, VideoTarget, zenoh};
+use zenoh_gateway::{Channel, DecodedFrame, EncodeOptions, EncodingOutput, EncodingSample, MessageEncoding, EncodedVideo, Fields, Grant, H264Encoder, Server, VideoEncoder, VideoFormat, VideoImage, VideoTarget, zenoh};
 
 #[derive(Parser)]
 struct Cli {
     /// the relay's zenoh endpoint
     #[arg(long)]
     connect: String,
-    /// zenoh-web name (signalling over zenoh)
+    /// zenoh-gateway name (signalling over zenoh)
     #[arg(long)]
     name: String,
     /// the only token accepted (the relay's)

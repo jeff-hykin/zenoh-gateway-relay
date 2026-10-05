@@ -1,10 +1,10 @@
 [package]
-name = "zenoh-web-relay"
+name = "zenoh-gateway-relay"
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Fan one zenoh-web backend out to many browsers: the backend dials out over zenoh, sends each camera once at best quality, and the relay re-encodes per viewer"
-repository = "https://github.com/jeff-hykin/zenoh-web-relay"
+description = "Fan one zenoh-gateway backend out to many browsers: the backend dials out over zenoh, sends each camera once at best quality, and the relay re-encodes per viewer"
+repository = "https://github.com/jeff-hykin/zenoh-gateway-relay"
 license-file = "LICENSE"
 readme = "README.md"
 keywords = ["zenoh", "webrtc", "relay", "robotics", "video"]
@@ -13,20 +13,20 @@ categories = ["network-programming", "multimedia::video", "science::robotics"]
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/LICENSE"]
 
 [[bin]]
-name = "zenoh-web-relay"
+name = "zenoh-gateway-relay"
 path = "src/main.rs"
 
 [dependencies]
-zenoh-web = { version = "0.5.0", git = "https://github.com/jeff-hykin/zenoh-web", rev = "63b72ddd507fd31cd91dc1c3cc350336ebe08b89", features = ["client"] }
-# the versions zenoh-web pins (1.7.0 through 1.10.1 deadlock answering the admin space)
+zenoh-gateway = { version = "0.5.0", features = ["client"] }
+# the versions zenoh-gateway pins (1.7.0 through 1.10.1 deadlock answering the admin space)
 zenoh = "=1.6.2"
 zenoh-ext = { version = "=1.6.2", features = ["unstable"] }
-# decodes the backend's H.264 once per camera (builds its C sources, like zenoh-web's encoder)
+# decodes the backend's H.264 once per camera (builds its C sources, like zenoh-gateway's encoder)
 openh264 = "0.9"
-# decodes the backend's Opus once per audio stream (libopus transpiled to Rust, as zenoh-web encodes it)
+# decodes the backend's Opus once per audio stream (libopus transpiled to Rust, as zenoh-gateway encodes it)
 unsafe-libopus = "0.2"
 # hardware re-encoding (zenoh_dimos_codecs::encoders): VideoToolbox, GStreamer (loaded at runtime), openh264 fallback
-zenoh-dimos-codecs = { version = "0.3.0", git = "https://github.com/jeff-hykin/zenoh-dimos-codecs", rev = "013142da5ba4777a6d00993acc85148d0fe674ce", features = ["videotoolbox", "gstreamer"] }
+zenoh-dimos-codecs = { version = "0.3.0", features = ["videotoolbox", "gstreamer"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 axum = "0.8"
 anyhow = "1"

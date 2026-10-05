@@ -3,9 +3,9 @@
 
 use std::time::Duration;
 use tokio::time::timeout;
-use zenoh_web::client::{Client, ClientOptions, Delivery, Message, PublisherOptions, SubscribeOptions};
-use zenoh_web::{AudioPcm, Channel, DecodedFrame, EncodingOutput, EncodingSample, Grant, MessageEncoding, Server, zenoh};
-use zenoh_web_relay::Relay;
+use zenoh_gateway::client::{Client, ClientOptions, Delivery, Message, PublisherOptions, SubscribeOptions};
+use zenoh_gateway::{AudioPcm, Channel, DecodedFrame, EncodingOutput, EncodingSample, Grant, MessageEncoding, Server, zenoh};
+use zenoh_gateway_relay::Relay;
 
 fn isolated(extra: &[(&str, String)]) -> zenoh::Config {
     let mut config = zenoh::Config::default();

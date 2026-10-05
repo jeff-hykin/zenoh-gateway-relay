@@ -2,7 +2,7 @@
 //! `@relay/<encoding>/<key>`.
 
 use anyhow::{Result, ensure};
-use zenoh_web::{AudioPcm, Channel, Compress, DecodedFrame, EncodeOptions, EncodingOutput, EncodingSample, MessageEncoding, VideoImage};
+use zenoh_gateway::{AudioPcm, Channel, Compress, DecodedFrame, EncodeOptions, EncodingOutput, EncodingSample, MessageEncoding, VideoImage};
 
 /// Where the relay puts what it pulled through `codec` (see `MessageEncoding::key_prefix`).
 pub fn prefix(codec: &str) -> String {

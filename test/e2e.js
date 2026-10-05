@@ -10,7 +10,7 @@ import { $ } from "https://esm.sh/dax-sh@0.42.0"
 import { launch } from "jsr:@astral/astral@0.5.6"
 
 const repoRoot = $.path(import.meta.url).parentOrThrow().parentOrThrow()
-const scratch = $.path(await Deno.makeTempDir({ prefix: "zenoh-web-relay-e2e-" }))
+const scratch = $.path(await Deno.makeTempDir({ prefix: "zenoh-gateway-relay-e2e-" }))
 const measureSeconds = Number(Deno.env.get("MEASURE_SECONDS") ?? 10)
 
 /** @type {string[]} */
@@ -80,14 +80,14 @@ let browser
 
 try {
     $.logStep("building the relay and the test backend (release)")
-    await $`cargo build --release --bin zenoh-web-relay --example test_backend`.cwd(repoRoot)
-    $.logStep("bundling zenoh-web's browser client")
+    await $`cargo build --release --bin zenoh-gateway-relay --example test_backend`.cwd(repoRoot)
+    $.logStep("bundling zenoh-gateway's browser client")
     const metadata = JSON.parse(await $`cargo metadata --format-version 1`.cwd(repoRoot).text())
-    const zenohWebRoot = $.path(metadata.packages.find((/** @type {{ name: string }} */ crate) => crate.name === "zenoh-web").manifest_path).parentOrThrow().parentOrThrow()
+    const zenohGatewayRoot = $.path(metadata.packages.find((/** @type {{ name: string }} */ crate) => crate.name === "zenoh-gateway").manifest_path).parentOrThrow().parentOrThrow()
     const web = scratch.join("web")
     web.join("client").mkdirSync({ recursive: true })
     web.join("index.html").writeTextSync("<!doctype html><title>viewer</title><body></body>")
-    const bundled = await new Deno.Command(Deno.execPath(), { args: ["bundle", "--quiet", "--platform", "browser", "-o", web.join("client/zenoh_web.js").toString(), zenohWebRoot.join("client/zenoh_web.ts").toString()] }).output()
+    const bundled = await new Deno.Command(Deno.execPath(), { args: ["bundle", "--quiet", "--platform", "browser", "-o", web.join("client/zenoh_gateway.js").toString(), zenohGatewayRoot.join("client/zenoh_gateway.ts").toString()] }).output()
     if (bundled.code !== 0) {
         throw new Error(`deno bundle failed: ${new TextDecoder().decode(bundled.stderr)}`)
     }
@@ -96,9 +96,9 @@ try {
     authFile.writeTextSync(JSON.stringify({ tokens: { viewer: "write" } }))
     const [zenohPort, httpPort] = [freePort(), freePort()]
     const relayUrl = `http://127.0.0.1:${httpPort}`
-    const relayCommand = new Deno.Command(repoRoot.join("target/release/zenoh-web-relay").toString(), {
+    const relayCommand = new Deno.Command(repoRoot.join("target/release/zenoh-gateway-relay").toString(), {
         args: ["--listen", `tcp/127.0.0.1:${zenohPort}`, "--http", `127.0.0.1:${httpPort}`, "--backend-name", "robot", "--backend-token", "relay-secret", "--auth-file", authFile.toString(), "--serve", web.toString()],
-        env: { RUST_LOG: Deno.env.get("RUST_LOG") || "info,zenoh=warn,zenoh_ext=warn,zenoh_web=info,zenoh_web_relay=info,rtc=warn,webrtc=warn" },
+        env: { RUST_LOG: Deno.env.get("RUST_LOG") || "info,zenoh=warn,zenoh_ext=warn,zenoh_gateway=info,zenoh_gateway_relay=info,rtc=warn,webrtc=warn" },
         stdout: "inherit",
         stderr: "piped",
     })
@@ -127,7 +127,7 @@ try {
     async function openViewer(index) {
         const page = await browser.newPage(`${relayUrl}/index.html`)
         const outcome = await page.evaluate(async ([relayUrl, index]) => {
-            const { connect } = await import("/client/zenoh_web.js")
+            const { connect } = await import("/client/zenoh_gateway.js")
             const z = await connect(relayUrl, { token: "viewer", heartbeatHz: 5 })
             const counts = { cam0: 0, cam1: 0, cam0Width: 0, counter: 0, lastCounter: "", depth: 0, depthSize: 0 }
             globalThis.counts = counts
@@ -245,7 +245,7 @@ try {
 
     $.logStep("auth")
     const refused = await viewers[0].page.evaluate(async (relayUrl) => {
-        const { connect } = await import("/client/zenoh_web.js")
+        const { connect } = await import("/client/zenoh_gateway.js")
         const outcome = (promise) => promise.then(() => "accepted", (error) => error.message)
         return { bad: await outcome(connect(relayUrl, { token: "nope", reconnect: false })), none: await outcome(connect(relayUrl, { reconnect: false })) }
     }, { args: [relayUrl] })

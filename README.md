@@ -1,23 +1,23 @@
-# zenoh-web-relay
+# zenoh-gateway-relay
 
-Fans one [zenoh-web](https://github.com/jeff-hykin/zenoh-web) backend (e.g. a robot) out to many browsers while
+Fans one [zenoh-gateway](https://github.com/jeff-hykin/zenoh-gateway) backend (e.g. a robot) out to many browsers while
 keeping the load off the backend. The relay's own CPU/GPU is spent instead: it runs on a machine where that is cheap.
 
 ```
-browsers ──WebRTC──▶ zenoh-web-relay (public host)  ◀──WebRTC (1 stream per camera)── backend (robot, no inbound ports)
+browsers ──WebRTC──▶ zenoh-gateway-relay (public host)  ◀──WebRTC (1 stream per camera)── backend (robot, no inbound ports)
    HTTP signalling ──▶   │ zenoh router :7447       ◀──zenoh (backend dials out; signalling + nothing else)──┘
 ```
 
 - **The backend needs no inbound ports.** Its zenoh dials out to the relay's zenoh router (tcp/tls). The relay
-  signals to the backend's zenoh-web over that link: the backend's server is built with
-  `ServerBuilder::zenoh_signalling("<name>")`, which answers offers on the queryable `zenoh-web/<name>/offer`, and
-  the relay connects with `zenoh_web::client::Client::connect_zenoh` (zenoh-web SPEC "Signalling over zenoh"). The
+  signals to the backend's zenoh-gateway over that link: the backend's server is built with
+  `ServerBuilder::zenoh_signalling("<name>")`, which answers offers on the queryable `zenoh-gateway/<name>/offer`, and
+  the relay connects with `zenoh_gateway::client::Client::connect_zenoh` (zenoh-gateway SPEC "Signalling over zenoh"). The
   WebRTC media then flows from the backend to the relay's public address: the backend sends the first UDP packets.
 - **Each camera is pulled once,** at best quality (`maxQuality: 1`, `maxBitrate` 8 Mbit/s by default), however
   many viewers watch it, so the backend runs one encoder per camera. Upstream subscriptions open with a camera's
   first viewer and close one second after its last.
 - **The relay decodes once and re-encodes per quality bucket.** Each camera is decoded once (openh264) and the
-  pictures feed the relay's embedded zenoh-web `Server` as a video encoding of the same name, whose encode sessions
+  pictures feed the relay's embedded zenoh-gateway `Server` as a video encoding of the same name, whose encode sessions
   are shared by viewers at similar grants (and on the same video channel: a viewer may ask for `video-av1` too) and whose allocator fits each viewer's link. Re-encoding uses a hardware
   encoder when one works (`--video-encoder auto`: VideoToolbox, or GStreamer's `nvv4l2h264enc` / `nvh264enc` /
   VAAPI, from [zenoh-dimos-codecs](https://github.com/jeff-hykin/zenoh-dimos-codecs)' encoders), else openh264.
@@ -32,30 +32,30 @@ browsers ──WebRTC──▶ zenoh-web-relay (public host)  ◀──WebRTC (1
   the relay presents its own token to the backend (`--backend-token`), so the backend's grant for the relay bounds
   every viewer.
 - **listTopics** on the relay shows the backend's topics (refreshed every 3 s).
-- **The backend may come and go.** The relay notices within a second when the backend's zenoh-web leaves zenoh
+- **The backend may come and go.** The relay notices within a second when the backend's zenoh-gateway leaves zenoh
   (its signalling queryable is gone), or after 5 s of unanswered pings, reconnects when it is back, and pulls again
   what viewers still watch; viewers stay connected to the relay meanwhile.
 
 ## Command
 
 ```sh
-zenoh-web-relay --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 --backend-name robot \
+zenoh-gateway-relay --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 --backend-name robot \
     --backend-token "$RELAY_TOKEN" --auth-file viewers.json5 \
     [--zenoh-config router.json5] [--ice-server turn:user:pass@turn.example.com:3478] \
     [--udp-ports 50000-50100] [--upstream-max-bitrate 8e6] [--video-encoder auto] [--serve ./viewer-page]
 ```
 
 - `--listen` (repeatable): the router's endpoints for the backend. TLS needs certificates in `--zenoh-config`.
-- `--http`: viewers' signalling (`POST /offer`, as for any zenoh-web server), static files (`--serve`), and
-  `GET /zenoh-web-relay/stats` (the backend connection, what is pulled and how much, viewers' subscriptions,
+- `--http`: viewers' signalling (`POST /offer`, as for any zenoh-gateway server), static files (`--serve`), and
+  `GET /zenoh-gateway-relay/stats` (the backend connection, what is pulled and how much, viewers' subscriptions,
   forwarded puts, and the backend's stats of the relay's connection).
-- `--auth-file`: zenoh-web-cli's format, `{ tokens: { "<token>": "read" | "write" | "lease" | <grant> },
+- `--auth-file`: zenoh-gateway-cli's format, `{ tokens: { "<token>": "read" | "write" | "lease" | <grant> },
   leaseGroups: { "<group>": ["<key expr>"] } }`, re-read when it changes (removed or changed tokens are revoked).
-- `--video-encoder`: `auto` (default), `software`, `videotoolbox` or `gstreamer`, as zenoh-web-cli's.
+- `--video-encoder`: `auto` (default), `software`, `videotoolbox` or `gstreamer`, as zenoh-gateway-cli's.
 - `--ice-server` / `--udp-ports`: the viewers' side; `--upstream-ice-server`: the relay → backend connection
   (default: the backend's own ICE servers).
 
-Viewers use the zenoh-web browser client unchanged: `connect("https://relay.example.com", { token })`, then subscribe
+Viewers use the zenoh-gateway browser client unchanged: `connect("https://relay.example.com", { token })`, then subscribe
 with the backend's encoding names (`encoding: "ros2_image"` etc.).
 
 ## Deployment example
@@ -74,11 +74,11 @@ the UDP range for WebRTC):
 ```
 
 ```sh
-zenoh-web-relay --zenoh-config router.json5 --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 \
+zenoh-gateway-relay --zenoh-config router.json5 --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 \
     --backend-name robot --backend-token "$RELAY_TOKEN" --auth-file viewers.json5 --udp-ports 50000-50100
 ```
 
-Backend (the robot): its zenoh-web server dials out with this zenoh config and answers signalling over zenoh, e.g.
+Backend (the robot): its zenoh-gateway server dials out with this zenoh config and answers signalling over zenoh, e.g.
 
 ```json5
 {
@@ -92,21 +92,21 @@ Backend (the robot): its zenoh-web server dials out with this zenoh config and a
 ```
 
 ```rust
-let server = zenoh_web::Server::builder()
+let server = zenoh_gateway::Server::builder()
     .zenoh_config_file("robot-zenoh.json5")?
     .zenoh_signalling("robot")
-    .authorize(|token, _| if token == Some(RELAY_TOKEN) { Ok(zenoh_web::Grant::all()) } else { Err("unknown token".into()) })
+    .authorize(|token, _| if token == Some(RELAY_TOKEN) { Ok(zenoh_gateway::Grant::all()) } else { Err("unknown token".into()) })
     .build()
     .await?; // no bind(): no HTTP listener on the robot
 ```
 
-or with the stock command: `zenoh-web --zenoh-config robot-zenoh.json5 --zenoh-signalling robot --no-http
---auth-file relay-token.json5` (zenoh-web-cli; the auth file holds the relay's token).
+or with the stock command: `zenoh-gateway --zenoh-config robot-zenoh.json5 --zenoh-signalling robot --no-http
+--auth-file relay-token.json5` (zenoh-gateway-cli; the auth file holds the relay's token).
 
 ## Library
 
 ```rust
-let relay = zenoh_web_relay::Relay::builder("robot")
+let relay = zenoh_gateway_relay::Relay::builder("robot")
     .listen("tls/0.0.0.0:7447")
     .zenoh_config(router_config)
     .backend_token("relay-secret")
@@ -114,7 +114,7 @@ let relay = zenoh_web_relay::Relay::builder("robot")
     .viewers(move |server| {
         let server = server.authorize(my_hook).ice_servers(ice).udp_ports(50000..=50100);
         // hardware re-encoding, as --video-encoder auto
-        match zenoh_web_relay::zenoh_dimos_codecs::encoders::select(zenoh_web_relay::zenoh_dimos_codecs::encoders::Backend::Auto) {
+        match zenoh_gateway_relay::zenoh_dimos_codecs::encoders::select(zenoh_gateway_relay::zenoh_dimos_codecs::encoders::Backend::Auto) {
             Ok(selected) => match selected.factory { Some(factory) => server.video_encoder(factory), None => server },
             Err(_) => server,
         }
@@ -122,12 +122,12 @@ let relay = zenoh_web_relay::Relay::builder("robot")
     .build()
     .await?;                                 // waits for the backend's first connection
 relay.serve_with_shutdown(("0.0.0.0", 7448), shutdown_signal).await?;
-// or mount relay.router() in your axum app; relay.server() is the viewers' zenoh_web::Server, relay.stats().await
+// or mount relay.router() in your axum app; relay.server() is the viewers' zenoh_gateway::Server, relay.stats().await
 ```
 
 ## Measured (test/e2e.js)
 
-`deno task e2e` builds the relay and `examples/test_backend.rs` (a zenoh-web server with no HTTP listener whose
+`deno task e2e` builds the relay and `examples/test_backend.rs` (a zenoh-gateway server with no HTTP listener whose
 zenoh dials out to the relay: 2 cameras at 640x480 30 fps through a video encoding, a raw data topic and a fields
 topic at 10 Hz), then opens 1 and then 3 headless Chrome viewers. Each viewer subscribes to both cameras (shown in
 `<video>` elements) and both data topics, and puts once. Apple M-series laptop, 10 s windows:
@@ -149,8 +149,8 @@ backend's subscriptions close after the last viewer leaves.
 - **One backend per relay**, chosen by `--backend-name`. The viewers' encodings mirror the backend's at its first
   connection (the relay waits for it before serving viewers); encodings added on a reconnect are not picked up.
 - **Decoding is software H.264 (openh264):** the relay pulls every camera on `video-h264` (viewers may still pick
-  any video channel the relay can encode). Audio is decoded at 48 kHz (the rate zenoh-web's Opus tracks use).
-- When embedding, use the re-exported `zenoh_web_relay::zenoh_web` and `zenoh_web_relay::zenoh_dimos_codecs` (other
+  any video channel the relay can encode). Audio is decoded at 48 kHz (the rate zenoh-gateway's Opus tracks use).
+- When embedding, use the re-exported `zenoh_gateway_relay::zenoh_gateway` and `zenoh_gateway_relay::zenoh_dimos_codecs` (other
   revisions of them are different crates to cargo).
 - **Wildcard viewer subscriptions** expand over the backend's listed topics (liveliness tokens by default; keys that
   only appear when published need `topic_probe_ms`), so a wildcard sees a new topic within ~3 s.
@@ -171,20 +171,20 @@ backend's subscriptions close after the last viewer leaves.
 
 ## Building
 
-`cargo build --release` (binary `target/release/zenoh-web-relay`). zenoh-web is a git dependency at a pinned
-revision plus its crates.io version, as in the other zenoh-web repos. The e2e test additionally needs Deno and
+`cargo build --release` (binary `target/release/zenoh-gateway-relay`). zenoh-gateway is a git dependency at a pinned
+revision plus its crates.io version, as in the other zenoh-gateway repos. The e2e test additionally needs Deno and
 downloads Chrome (astral).
 
-With nix (zenoh-web's `lib.crossRust`: crate2nix, one derivation per crate shared with the other zenoh-web flakes;
+With nix (zenoh-gateway's `lib.crossRust`: crate2nix, one derivation per crate shared with the other zenoh-gateway flakes;
 Linux cross compiled from a Mac with zig as the C compiler and linker, glibc 2.35):
 
 ```sh
-nix build .#zenoh-web-relay --max-jobs auto                 # native
-nix build .#zenoh-web-relay-aarch64-linux --max-jobs auto   # e.g. for a Jetson (GStreamer is opened at runtime)
-nix build .#zenoh-web-relay-x86_64-linux --max-jobs auto
+nix build .#zenoh-gateway-relay --max-jobs auto                 # native
+nix build .#zenoh-gateway-relay-aarch64-linux --max-jobs auto   # e.g. for a Jetson (GStreamer is opened at runtime)
+nix build .#zenoh-gateway-relay-x86_64-linux --max-jobs auto
 ```
 
-After changing `Cargo.lock`, regenerate `Cargo.nix`: `nix run github:jeff-hykin/zenoh-web#crate2nix -- generate`.
+After changing `Cargo.lock`, regenerate `Cargo.nix`: `nix run github:jeff-hykin/zenoh-gateway#crate2nix -- generate`.
 
 ## License
 
