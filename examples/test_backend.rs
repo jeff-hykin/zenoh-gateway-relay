@@ -2,10 +2,10 @@
 //! signalling over zenoh (`zenoh_signalling`). It publishes test cameras and data topics, prints what viewers put,
 //! and reports its own work once a second, for the test to check the relay keeps it flat:
 //!
-//! - `cam/<n>` (`--cameras`): a moving pattern of `--size` at `--fps`, through the video codec `test-pattern`;
-//! - `data/counter`: `count <n>` at 10 Hz (raw), and `data/depth`: 64 KiB at 10 Hz (raw, or the fields codec `test-fields`);
+//! - `cam/<n>` (`--cameras`): a moving pattern of `--size` at `--fps`, through the video encoding `test-pattern`;
+//! - `data/counter`: `count <n>` at 10 Hz (raw), and `data/depth`: 64 KiB at 10 Hz (raw, or the fields encoding `test-fields`);
 //! - prints `RECV <key> <payload>` for puts on `cmd/**`;
-//! - prints `STATS {"subscriptions": [[key, codec]...], "encoders": live encode sessions, "encodedFrames": total}`.
+//! - prints `STATS {"subscriptions": [[key, encoding]...], "encoders": live encode sessions, "encodedFrames": total}`.
 //!
 //! `cargo run --release --example test_backend -- --connect tcp/127.0.0.1:7447 --name robot --token relay-secret`
 
@@ -14,7 +14,7 @@ use clap::Parser;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
-use zenoh_web::{Codec, CodecOutput, CodecSample, DecodedFrame, EncodedVideo, Fields, Grant, H264Encoder, Server, VideoEncoder, VideoFormat, VideoImage, VideoTarget, zenoh};
+use zenoh_web::{Channel, DecodedFrame, EncodeOptions, EncodingOutput, EncodingSample, MessageEncoding, EncodedVideo, Fields, Grant, H264Encoder, Server, VideoEncoder, VideoFormat, VideoImage, VideoTarget, zenoh};
 
 #[derive(Parser)]
 struct Cli {
@@ -38,16 +38,16 @@ struct Cli {
 /// `u32 frame | u16 width | u16 height` -> an I420 picture with a moving gradient (cheap, so encoding dominates).
 struct TestPattern;
 
-impl Codec for TestPattern {
+impl MessageEncoding for TestPattern {
     fn name(&self) -> &str {
         "test-pattern"
     }
 
-    fn output(&self) -> CodecOutput {
-        CodecOutput::Video
+    fn output(&self) -> EncodingOutput {
+        EncodingOutput::Video
     }
 
-    fn decode(&self, sample: &CodecSample<'_>) -> Result<DecodedFrame> {
+    fn decode(&self, sample: &EncodingSample<'_>, _channel: Channel) -> Result<DecodedFrame> {
         let p = sample.payload;
         let frame = u32::from_le_bytes(p[0..4].try_into()?) as usize;
         let (width, height) = (u16::from_le_bytes([p[4], p[5]]) as usize, u16::from_le_bytes([p[6], p[7]]) as usize);
@@ -64,20 +64,20 @@ impl Codec for TestPattern {
 /// bytes -> `{size, data}` fields
 struct TestFields;
 
-impl Codec for TestFields {
+impl MessageEncoding for TestFields {
     fn name(&self) -> &str {
         "test-fields"
     }
 
-    fn output(&self) -> CodecOutput {
-        CodecOutput::Fields
+    fn output(&self) -> EncodingOutput {
+        EncodingOutput::Fields
     }
 
-    fn decode(&self, sample: &CodecSample<'_>) -> Result<DecodedFrame> {
+    fn decode(&self, sample: &EncodingSample<'_>, _channel: Channel) -> Result<DecodedFrame> {
         Ok(DecodedFrame::data(sample.payload.to_vec()))
     }
 
-    fn encode(&self, frame: &DecodedFrame, _quality: f64) -> Result<Vec<u8>> {
+    fn encode(&self, frame: &DecodedFrame, _options: &EncodeOptions) -> Result<Vec<u8>> {
         let bytes = frame.downcast::<Vec<u8>>()?;
         Ok(Fields::new().scalar("size", bytes.len() as u32).array("data", bytes).build())
     }
@@ -128,8 +128,8 @@ async fn main() -> Result<()> {
     let token = cli.token.clone();
     let server = Server::builder()
         .session(session.clone())
-        .codec(TestPattern)
-        .codec(TestFields)
+        .encoding(TestPattern)
+        .encoding(TestFields)
         .video_encoder(move || {
             factory_counters.live.fetch_add(1, Ordering::Relaxed);
             Box::new(Counting { inner: H264Encoder::default(), counters: factory_counters.clone() })

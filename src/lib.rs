@@ -43,7 +43,7 @@ use zenoh::key_expr::keyexpr;
 use zenoh::qos::CongestionControl;
 use zenoh_ext::{AdvancedPublisherBuilderExt, CacheConfig};
 use zenoh_web::client::{Client, ClientOptions, ConnectionState, Delivery, Lease, Message, Publisher, PublisherOptions, SubscribeOptions};
-use zenoh_web::{CodecOutput, IceServer, Server, ServerBuilder};
+use zenoh_web::{EncodingOutput, IceServer, Server, ServerBuilder};
 
 pub use zenoh_web;
 /// Hardware encoders (`zenoh_dimos_codecs::encoders`) built against the same zenoh-web (for
@@ -154,21 +154,21 @@ impl RelayBuilder {
         let client = connect(&router, &self.backend_name, &client_options).await?;
         let mut kinds = HashMap::new();
         let mut builder = (self.viewers)(Server::builder());
-        for codec in client.codecs() {
+        for codec in client.encodings() {
             let output = match codec.output.as_str() {
-                "video" => CodecOutput::Video,
-                "fields" => CodecOutput::Fields,
-                "data" => CodecOutput::Data,
-                "audio" => CodecOutput::Audio,
+                "video" => EncodingOutput::Video,
+                "fields" => EncodingOutput::Fields,
+                "data" => EncodingOutput::Data,
+                "audio" => EncodingOutput::Audio,
                 other => {
-                    warn!("codec {} ({other}) is not relayed", codec.name);
+                    warn!("encoding {} ({other}) is not relayed", codec.name);
                     continue;
                 }
             };
             builder = match output {
-                CodecOutput::Video => builder.codec(codecs::RelayVideo::new(&codec.name)),
-                CodecOutput::Audio => builder.codec(codecs::RelayAudio::new(&codec.name)),
-                _ => builder.codec(codecs::RelayData::new(&codec.name, output)),
+                EncodingOutput::Video => builder.encoding(codecs::RelayVideo::new(&codec.name)),
+                EncodingOutput::Audio => builder.encoding(codecs::RelayAudio::new(&codec.name)),
+                _ => builder.encoding(codecs::RelayData::new(&codec.name, output)),
             };
             kinds.insert(codec.name.clone(), output);
         }
@@ -261,7 +261,7 @@ struct State {
     client: watch::Sender<Option<Client>>,
     generation: AtomicU64,
     /// backend codec name -> its kind
-    kinds: HashMap<String, CodecOutput>,
+    kinds: HashMap<String, EncodingOutput>,
     upstream_max_bitrate: f64,
     topic_probe_ms: u64,
     streams: Mutex<HashMap<StreamId, Stream>>,
@@ -482,14 +482,14 @@ async fn topics_loop(state: Weak<State>) {
 }
 
 /// Pulls one key from the backend until aborted, resubscribing after an error.
-async fn run_stream(state: Weak<State>, client: Client, (key, codec): StreamId, kind: Option<CodecOutput>, stats: Arc<StreamStats>) {
+async fn run_stream(state: Weak<State>, client: Client, (key, codec): StreamId, kind: Option<EncodingOutput>, stats: Arc<StreamStats>) {
     loop {
         let Some(strong) = state.upgrade() else { return };
         let (local, bitrate) = (strong.local.clone(), strong.upstream_max_bitrate);
         drop(strong);
         let result = match (kind, &codec) {
-            (Some(CodecOutput::Video), Some(codec)) => pull_video(&client, &local, &key, codec, bitrate, &stats).await,
-            (Some(CodecOutput::Audio), Some(codec)) => pull_audio(&client, &local, &key, codec, &stats).await,
+            (Some(EncodingOutput::Video), Some(codec)) => pull_video(&client, &local, &key, codec, bitrate, &stats).await,
+            (Some(EncodingOutput::Audio), Some(codec)) => pull_audio(&client, &local, &key, codec, &stats).await,
             (_, Some(codec)) => pull_data(&client, &local, &key, Some(codec), &stats).await,
             (_, None) => pull_data(&client, &local, &key, None, &stats).await,
         };
@@ -502,7 +502,7 @@ async fn run_stream(state: Weak<State>, client: Client, (key, codec): StreamId, 
 
 /// Raw topics and fields/data codecs: each message put as is on the viewers' session, the latest kept for late viewers.
 async fn pull_data(client: &Client, local: &zenoh::Session, key: &str, codec: Option<&str>, stats: &StreamStats) -> Result<()> {
-    let options = SubscribeOptions { codec: codec.map(str::to_owned), max_quality: codec.map(|_| 1.0), ..Default::default() };
+    let options = SubscribeOptions { encoding: codec.map(str::to_owned), ..Default::default() };
     let mut subscription = client.subscribe(key, options).await?;
     let local_key = match codec {
         Some(codec) => format!("{}/{key}", codecs::prefix(codec)),
@@ -521,7 +521,8 @@ async fn pull_data(client: &Client, local: &zenoh::Session, key: &str, codec: Op
 /// A camera: the backend's access units decoded once (openh264, on a thread), the pictures put for the viewers'
 /// encoders. A frame the decoder can't keep up with is dropped, and a keyframe asked for to resume.
 async fn pull_video(client: &Client, local: &zenoh::Session, key: &str, codec: &str, bitrate: f64, stats: &Arc<StreamStats>) -> Result<()> {
-    let options = SubscribeOptions { codec: Some(codec.to_owned()), max_quality: Some(1.0), max_bitrate: Some(bitrate), ..Default::default() };
+    // H.264: what the relay decodes
+    let options = SubscribeOptions { encoding: Some(codec.to_owned()), channel: Some("video-h264".into()), max_bitrate: Some(bitrate), ..Default::default() };
     let mut subscription = client.subscribe(key, options).await?;
     let local_key = format!("{}/{key}", codecs::prefix(codec));
     let (units_tx, units_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(4);
@@ -558,7 +559,7 @@ async fn pull_video(client: &Client, local: &zenoh::Session, key: &str, codec: &
 /// An audio codec: the backend's Opus decoded once (48 kHz, the packet's channels), the PCM put for the viewers' Opus
 /// encoders.
 async fn pull_audio(client: &Client, local: &zenoh::Session, key: &str, codec: &str, stats: &StreamStats) -> Result<()> {
-    let mut subscription = client.subscribe(key, SubscribeOptions { codec: Some(codec.to_owned()), ..Default::default() }).await?;
+    let mut subscription = client.subscribe(key, SubscribeOptions { encoding: Some(codec.to_owned()), ..Default::default() }).await?;
     let local_key = format!("{}/{key}", codecs::prefix(codec));
     let mut decoder: Option<OpusDecoder> = None;
     while let Some(message) = subscription.recv().await {

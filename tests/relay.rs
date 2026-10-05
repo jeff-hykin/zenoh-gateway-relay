@@ -4,7 +4,7 @@
 use std::time::Duration;
 use tokio::time::timeout;
 use zenoh_web::client::{Client, ClientOptions, Delivery, Message, PublisherOptions, SubscribeOptions};
-use zenoh_web::{AudioPcm, Codec, CodecOutput, CodecSample, DecodedFrame, Grant, Server, zenoh};
+use zenoh_web::{AudioPcm, Channel, DecodedFrame, EncodingOutput, EncodingSample, Grant, MessageEncoding, Server, zenoh};
 use zenoh_web_relay::Relay;
 
 fn isolated(extra: &[(&str, String)]) -> zenoh::Config {
@@ -20,16 +20,16 @@ fn isolated(extra: &[(&str, String)]) -> zenoh::Config {
 /// Any sample -> 20 ms of a 440 Hz tone, 48 kHz mono.
 struct Tone;
 
-impl Codec for Tone {
+impl MessageEncoding for Tone {
     fn name(&self) -> &str {
         "test-tone"
     }
 
-    fn output(&self) -> CodecOutput {
-        CodecOutput::Audio
+    fn output(&self) -> EncodingOutput {
+        EncodingOutput::Audio
     }
 
-    fn decode(&self, _sample: &CodecSample<'_>) -> anyhow::Result<DecodedFrame> {
+    fn decode(&self, _sample: &EncodingSample<'_>, _channel: Channel) -> anyhow::Result<DecodedFrame> {
         let samples = (0..960).map(|index| ((index as f64 * 440.0 / 48_000.0 * std::f64::consts::TAU).sin() * 8000.0) as i16).collect();
         Ok(DecodedFrame::Audio(AudioPcm::new(48_000, 1, samples)?))
     }
@@ -41,7 +41,7 @@ async fn start_backend(endpoint: &str) -> (Server, zenoh::Session) {
     let backend = Server::builder()
         .session(session.clone())
         .zenoh_signalling("robot")
-        .codec(Tone)
+        .encoding(Tone)
         .lease_group("drive", ["cmd/**"])
         .authorize(|token, _| if token == Some("relay-secret") { Ok(Grant::all()) } else { Err("unknown token".into()) })
         .build()
@@ -152,7 +152,7 @@ async fn relays_data_puts_queries_and_leases() {
             }
         })
     };
-    let mut mic = first.subscribe("robot/mic", SubscribeOptions { codec: Some("test-tone".into()), ..Default::default() }).await.unwrap();
+    let mut mic = first.subscribe("robot/mic", SubscribeOptions { encoding: Some("test-tone".into()), ..Default::default() }).await.unwrap();
     let mut packets = 0;
     while packets < 10 {
         if let Message::Audio(packet) = timeout(Duration::from_secs(10), mic.recv()).await.unwrap().unwrap() {

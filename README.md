@@ -17,13 +17,13 @@ browsers ──WebRTC──▶ zenoh-web-relay (public host)  ◀──WebRTC (1
   many viewers watch it, so the backend runs one encoder per camera. Upstream subscriptions open with a camera's
   first viewer and close one second after its last.
 - **The relay decodes once and re-encodes per quality bucket.** Each camera is decoded once (openh264) and the
-  pictures feed the relay's embedded zenoh-web `Server` as a video codec of the same name, whose encode sessions
-  are shared by viewers at similar grants and whose allocator fits each viewer's link. Re-encoding uses a hardware
+  pictures feed the relay's embedded zenoh-web `Server` as a video encoding of the same name, whose encode sessions
+  are shared by viewers at similar grants (and on the same video channel: a viewer may ask for `video-av1` too) and whose allocator fits each viewer's link. Re-encoding uses a hardware
   encoder when one works (`--video-encoder auto`: VideoToolbox, or GStreamer's `nvv4l2h264enc` / `nvh264enc` /
   VAAPI, from [zenoh-dimos-codecs](https://github.com/jeff-hykin/zenoh-dimos-codecs)' encoders), else openh264.
-- **Audio codecs too:** the backend's Opus is decoded once (libopus) and the PCM feeds an audio codec of the same
+- **Audio too:** the backend's Opus is decoded once (libopus) and the PCM feeds an audio encoding of the same
   name, which the relay's server encodes to Opus per viewer.
-- **Data topics are pulled once and fanned out.** Fields and data codecs (depth, point clouds) are passed through
+- **Data topics are pulled once and fanned out.** Fields and data encodings (depth, point clouds) are passed through
   at full quality without re-encoding (zstd per message if it shrinks it); raw topics too.
 - **Viewers' puts, queries and leases go to the backend** through the relay's one connection: a put becomes a put
   of the relay's publisher on that key (reliable if the viewer's was), a viewer's lease is taken on the backend by
@@ -56,7 +56,7 @@ zenoh-web-relay --listen tls/0.0.0.0:7447 --http 0.0.0.0:7448 --backend-name rob
   (default: the backend's own ICE servers).
 
 Viewers use the zenoh-web browser client unchanged: `connect("https://relay.example.com", { token })`, then subscribe
-with the backend's codec names (`codec: "ros2-image"` etc.).
+with the backend's encoding names (`encoding: "ros2_image"` etc.).
 
 ## Deployment example
 
@@ -128,7 +128,7 @@ relay.serve_with_shutdown(("0.0.0.0", 7448), shutdown_signal).await?;
 ## Measured (test/e2e.js)
 
 `deno task e2e` builds the relay and `examples/test_backend.rs` (a zenoh-web server with no HTTP listener whose
-zenoh dials out to the relay: 2 cameras at 640x480 30 fps through a video codec, a raw data topic and a fields
+zenoh dials out to the relay: 2 cameras at 640x480 30 fps through a video encoding, a raw data topic and a fields
 topic at 10 Hz), then opens 1 and then 3 headless Chrome viewers. Each viewer subscribes to both cameras (shown in
 `<video>` elements) and both data topics, and puts once. Apple M-series laptop, 10 s windows:
 
@@ -146,16 +146,17 @@ backend's subscriptions close after the last viewer leaves.
 
 ## Limits
 
-- **One backend per relay**, chosen by `--backend-name`. The viewers' codecs mirror the backend's at its first
-  connection (the relay waits for it before serving viewers); codecs added on a reconnect are not picked up.
-- **Decoding is software H.264 (openh264): video codecs must produce H.264.** A backend whose encoder sends VP8,
-  VP9 or AV1 is not decoded. Audio is decoded at 48 kHz (the rate zenoh-web's Opus tracks use).
+- **One backend per relay**, chosen by `--backend-name`. The viewers' encodings mirror the backend's at its first
+  connection (the relay waits for it before serving viewers); encodings added on a reconnect are not picked up.
+- **Decoding is software H.264 (openh264):** the relay pulls every camera on `video-h264` (viewers may still pick
+  any video channel the relay can encode). Audio is decoded at 48 kHz (the rate zenoh-web's Opus tracks use).
 - When embedding, use the re-exported `zenoh_web_relay::zenoh_web` and `zenoh_web_relay::zenoh_dimos_codecs` (other
   revisions of them are different crates to cargo).
 - **Wildcard viewer subscriptions** expand over the backend's listed topics (liveliness tokens by default; keys that
   only appear when published need `topic_probe_ms`), so a wildcard sees a new topic within ~3 s.
 - **Data passes through at full quality**: viewers' allocators trade Hz, not size, for fields/data topics.
-  Raw and data-codec topics are pulled with `delivery: "latest"`: a reliable viewer subscription is reliable from the
+  Data encodings take no `encodeOptions` through a relay (it pulls one stream, at full quality, per topic). Raw and
+  data-encoding topics are pulled with `delivery: "latest"`: a reliable viewer subscription is reliable from the
   relay, not end to end.
 - **Deadmen live at the relay.** A viewer's deadman fires at the relay (its put is forwarded); if the relay's link
   to the backend dies, the backend sees one client (the relay) go and fires nothing of the viewers'. Use zenoh-side

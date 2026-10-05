@@ -133,7 +133,7 @@ try {
             globalThis.counts = counts
             globalThis.videos = []
             for (const camera of [0, 1]) {
-                const subscription = z.subscribe(`cam/${camera}`, { codec: "test-pattern" }, (msg) => {
+                const subscription = z.subscribe(`cam/${camera}`, { encoding: "test-pattern" }, (msg) => {
                     if (msg.video) {
                         counts[`cam${camera}`]++
                         if (camera === 0) {
@@ -152,7 +152,7 @@ try {
                 counts.counter++
                 counts.lastCounter = new TextDecoder().decode(msg.bytes)
             }).ready()
-            await z.subscribe("data/depth", { codec: "test-fields" }, (msg) => {
+            await z.subscribe("data/depth", { encoding: "test-fields" }, (msg) => {
                 counts.depth++
                 counts.depthSize = msg.decoded?.size ?? -1
             }).ready()
