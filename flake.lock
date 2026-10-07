@@ -18,13 +18,13 @@
     },
     "root": {
       "inputs": {
-        "zenoh-web": "zenoh-web"
+        "zenoh-gateway": "zenoh-gateway"
       }
     },
     "rust-overlay": {
       "inputs": {
         "nixpkgs": [
-          "zenoh-web",
+          "zenoh-gateway",
           "nixpkgs"
         ]
       },
@@ -42,22 +42,22 @@
         "type": "github"
       }
     },
-    "zenoh-web": {
+    "zenoh-gateway": {
       "inputs": {
         "nixpkgs": "nixpkgs",
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1790902551,
-        "narHash": "sha256-zu6CbnzfBY5pCc07HGAUsuugHNQXPBCUHVHmlDA/rqA=",
+        "lastModified": 1791331731,
+        "narHash": "sha256-6Qy71p/1E822McTwmoc+TuAnE9vh5U9ABqneCsJmgIA=",
         "owner": "jeff-hykin",
-        "repo": "zenoh-web",
-        "rev": "db9a0d07e02a31e87df0cebb99620f5baf418bf7",
+        "repo": "zenoh-gateway",
+        "rev": "28c17f08b3afcac56ede2f29816b89b427c4aba0",
         "type": "github"
       },
       "original": {
         "owner": "jeff-hykin",
-        "repo": "zenoh-web",
+        "repo": "zenoh-gateway",
         "type": "github"
       }
     }
