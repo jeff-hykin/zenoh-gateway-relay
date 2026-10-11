@@ -17,16 +17,16 @@ name = "zenoh-gateway-relay"
 path = "src/main.rs"
 
 [dependencies]
-zenoh-gateway = { version = "0.5.0", features = ["client"] }
-# the versions zenoh-gateway pins (1.7.0 through 1.10.1 deadlock answering the admin space)
-zenoh = "=1.6.2"
-zenoh-ext = { version = "=1.6.2", features = ["unstable"] }
+zenoh-gateway = { version = "0.5.4", git = "https://github.com/jeff-hykin/zenoh-gateway", branch = "jeff/zenoh_1.10.1", features = ["client"] }
+# the versions zenoh-gateway pins
+zenoh = "=1.10.1"
+zenoh-ext = { version = "=1.10.1", features = ["unstable"] }
 # decodes the backend's H.264 once per camera (builds its C sources, like zenoh-gateway's encoder)
 openh264 = "0.9"
 # decodes the backend's Opus once per audio stream (libopus transpiled to Rust, as zenoh-gateway encodes it)
 unsafe-libopus = "0.2"
 # hardware re-encoding (zenoh_dimos_codecs::encoders): VideoToolbox, GStreamer (loaded at runtime), openh264 fallback
-zenoh-dimos-codecs = { version = "0.3.0", features = ["videotoolbox", "gstreamer"] }
+zenoh-dimos-codecs = { version = "0.3.1", git = "https://github.com/jeff-hykin/zenoh-dimos-codecs", branch = "jeff/zenoh_1.10.1", features = ["videotoolbox", "gstreamer"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 axum = "0.8"
 anyhow = "1"
@@ -38,5 +38,5 @@ json5 = "0.4"
 clap = { version = "4", features = ["derive"] }
 
 [patch.crates-io]
-# zenoh 1.6.2 plus a routing fix (puts dropped after a publisher is undeclared): https://github.com/jeff-hykin/zenoh-vendor
-zenoh = { git = "https://github.com/jeff-hykin/zenoh-vendor", tag = "zenoh-1.6.2-patch.1" }
+# zenoh 1.10.1 plus a routing fix (puts dropped after a publisher is undeclared): https://github.com/jeff-hykin/zenoh-vendor
+zenoh = { git = "https://github.com/jeff-hykin/zenoh-vendor", tag = "zenoh-1.10.1-patch.1" }
