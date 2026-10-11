@@ -48,15 +48,16 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1791331731,
-        "narHash": "sha256-6Qy71p/1E822McTwmoc+TuAnE9vh5U9ABqneCsJmgIA=",
+        "lastModified": 1791706942,
+        "narHash": "sha256-qfpUYuozSQiHko8HaDc+RXSFJd2tOo70lRavLYOuLcI=",
         "owner": "jeff-hykin",
         "repo": "zenoh-gateway",
-        "rev": "28c17f08b3afcac56ede2f29816b89b427c4aba0",
+        "rev": "4cc9cdc5e1191c17ff9d56fb3d7d002f937d8ef5",
         "type": "github"
       },
       "original": {
         "owner": "jeff-hykin",
+        "ref": "jeff/zenoh_1.10.1",
         "repo": "zenoh-gateway",
         "type": "github"
       }
